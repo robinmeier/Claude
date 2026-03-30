@@ -58,16 +58,66 @@ def _bootstrap() -> None:
 
     # 3. Install dependencies (once)
     if not SENTINEL.exists():
-        reqs_file = "requirements-mac.txt" if sys.platform == "darwin" else "requirements.txt"
-        reqs_path = SEED_VC_DIR / reqs_file
-        print(f"[setup] Installing dependencies from {reqs_file}")
-        print("[setup] This will take several minutes on first run…")
+        print("[setup] Installing dependencies (this may take several minutes)…")
         env = {**os.environ, "VIRTUAL_ENV": str(VENV_DIR)}
+
+        # Step A: PyTorch — requirements-mac.txt uses pip-only inline flags that uv
+        # rejects, so we install torch separately with the correct index URL.
+        # PyTorch 2.x stable includes MPS support for Apple Silicon.
+        if sys.platform == "darwin":
+            print("[setup] Installing PyTorch (MPS-compatible)…")
+            subprocess.run(
+                [
+                    "uv", "pip", "install",
+                    "--extra-index-url", "https://download.pytorch.org/whl/nightly/cpu",
+                    "torch", "torchvision", "torchaudio",
+                ],
+                env=env,
+                check=True,
+            )
+        else:
+            print("[setup] Installing PyTorch (CUDA)…")
+            subprocess.run(
+                [
+                    "uv", "pip", "install",
+                    "--extra-index-url", "https://download.pytorch.org/whl/cu121",
+                    "torch", "torchvision", "torchaudio",
+                ],
+                env=env,
+                check=True,
+            )
+
+        # Step B: All other Seed-VC dependencies (torch lines skipped)
+        print("[setup] Installing remaining dependencies…")
+        other_deps = [
+            "accelerate",
+            "scipy==1.13.1",
+            "librosa==0.10.2",
+            "huggingface-hub>=0.28.1",
+            "munch==4.0.0",
+            "einops==0.8.0",
+            "descript-audio-codec==1.0.0",
+            "gradio==5.23.0",
+            "pydub==0.25.1",
+            "resemblyzer",
+            "jiwer==3.0.3",
+            "transformers==4.46.3",
+            "FreeSimpleGUI==5.1.1",
+            "soundfile==0.12.1",
+            "sounddevice==0.5.0",
+            "modelscope==1.18.1",
+            "funasr==1.1.5",
+            "numpy==1.26.4",
+            "pyyaml",
+            "python-dotenv",
+            "hydra-core==1.3.2",
+        ]
         subprocess.run(
-            ["uv", "pip", "install", "-r", str(reqs_path)],
+            ["uv", "pip", "install"] + other_deps,
             env=env,
             check=True,
         )
+
         SENTINEL.touch()
         print("[setup] Dependencies installed.")
 
