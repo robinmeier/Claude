@@ -28,7 +28,10 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 SEED_VC_DIR = SCRIPT_DIR / "seed-vc"
 VENV_DIR = SCRIPT_DIR / ".venv-vc"
-SENTINEL = VENV_DIR / ".deps_ok"
+# Bump this string whenever the installed package list changes; the old
+# sentinel will be ignored and deps will reinstall automatically.
+DEPS_VERSION = "v2"
+SENTINEL = VENV_DIR / f".deps_ok_{DEPS_VERSION}"
 
 
 def _in_managed_venv() -> bool:
@@ -87,7 +90,10 @@ def _bootstrap() -> None:
                 check=True,
             )
 
-        # Step B: All other Seed-VC dependencies (torch lines skipped)
+        # Step B: All other Seed-VC dependencies (torch lines skipped).
+        # gradio, FreeSimpleGUI, sounddevice are excluded — they are only used
+        # by the web-UI and real-time apps, not by the conversion pipeline, and
+        # gradio in particular creates large temp directories on every import.
         print("[setup] Installing remaining dependencies…")
         other_deps = [
             "accelerate",
@@ -97,14 +103,10 @@ def _bootstrap() -> None:
             "munch==4.0.0",
             "einops==0.8.0",
             "descript-audio-codec==1.0.0",
-            "gradio==5.23.0",
             "pydub==0.25.1",
             "resemblyzer",
-            "jiwer==3.0.3",
             "transformers==4.46.3",
-            "FreeSimpleGUI==5.1.1",
             "soundfile==0.12.1",
-            "sounddevice==0.5.0",
             "modelscope==1.18.1",
             "funasr==1.1.5",
             "numpy==1.26.4",
@@ -136,7 +138,16 @@ if not _in_managed_venv():
 import argparse
 import datetime
 
-# Must be set before importing torch (enables CPU fallback for unsupported MPS ops)
+# Redirect all model/dataset caches into the project folder so nothing
+# scatters across ~/. These must be set before importing torch/transformers.
+_CACHE_DIR = str(SEED_VC_DIR / "checkpoints" / "hf_cache")
+os.environ.setdefault("HF_HOME", _CACHE_DIR)
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", _CACHE_DIR)
+os.environ.setdefault("HF_DATASETS_CACHE", _CACHE_DIR)
+os.environ.setdefault("MODELSCOPE_CACHE", _CACHE_DIR)
+os.environ.setdefault("FUNASR_CACHE", _CACHE_DIR)
+
+# Enable CPU fallback for MPS ops not yet implemented in Metal
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 import torch
