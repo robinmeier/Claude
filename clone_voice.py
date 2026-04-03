@@ -167,15 +167,23 @@ def parse_args() -> argparse.Namespace:
         description="Zero-shot audio-to-audio voice conversion (Seed-VC v2).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Parameters:
-  source      Audio whose speech content you want to keep
-  target      Short voice sample (1–30 s) of the speaker to clone
+Tuning guide:
+  Intelligibility / timing problems?
+    Lower --temperature (try 0.5–0.7) and raise --intelligibility (try 0.9–1.0).
+    --top-p 0.7 also helps keep the AR model closer to the source content.
+    For perfect temporal alignment, use --no-style (timbre-only, no AR pass).
+
+  Voice not close enough to target?
+    Raise --similarity (try 0.85–1.0). Use a cleaner, longer target sample.
+
+  Output too fast/slow?
+    Adjust --length-adjust (e.g. 0.9 to speed up, 1.1 to slow down).
 
 Examples:
-  uv run clone_voice.py speech.wav voice_sample.wav
-  uv run clone_voice.py speech.wav voice_sample.wav --diffusion-steps 50
-  uv run clone_voice.py speech.wav voice_sample.wav --no-style --similarity 0.9
-  uv run clone_voice.py speech.wav voice_sample.wav --temperature 1.3
+  uv run clone_voice.py speech.wav voice.wav
+  uv run clone_voice.py speech.wav voice.wav --temperature 0.7 --intelligibility 0.9
+  uv run clone_voice.py speech.wav voice.wav --no-style --similarity 0.85
+  uv run clone_voice.py speech.wav voice.wav --diffusion-steps 50
         """,
     )
     parser.add_argument("source", type=Path, help="Source audio (content to preserve)")
@@ -197,9 +205,16 @@ Examples:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=1.0,
+        default=0.7,
         metavar="F",
-        help="AR model randomness 0.7–1.5; higher = more varied [default: 1.0]",
+        help="AR randomness 0.5–1.5; lower = more faithful to source [default: 0.7]",
+    )
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=0.7,
+        metavar="F",
+        help="AR nucleus sampling 0.5–1.0; lower = more deterministic [default: 0.7]",
     )
     parser.add_argument(
         "--similarity",
@@ -211,9 +226,16 @@ Examples:
     parser.add_argument(
         "--intelligibility",
         type=float,
-        default=0.7,
+        default=0.9,
         metavar="F",
-        help="Speech clarity 0.0–1.0 [default: 0.7]",
+        help="Speech clarity 0.0–1.0; raise if words sound garbled [default: 0.9]",
+    )
+    parser.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=1.5,
+        metavar="F",
+        help="Penalise repeated tokens 1.0–2.0 [default: 1.5]",
     )
     parser.add_argument(
         "--length-adjust",
@@ -225,7 +247,7 @@ Examples:
     parser.add_argument(
         "--no-style",
         action="store_true",
-        help="Timbre-only mode: skip accent/emotion transfer (faster)",
+        help="Timbre-only mode: no AR pass — preserves exact timing and phrasing",
     )
     return parser.parse_args()
 
@@ -282,7 +304,8 @@ def run_conversion(
     print(f"[convert] Target : {target.name}")
     print(f"[convert] Mode   : {mode}")
     print(f"[convert] Steps  : {args.diffusion_steps}  |  temp={args.temperature}"
-          f"  |  sim={args.similarity}  |  intel={args.intelligibility}")
+          f"  |  top_p={args.top_p}  |  sim={args.similarity}"
+          f"  |  intel={args.intelligibility}  |  rep_pen={args.repetition_penalty}")
     print("[convert] Running… (may take a minute)")
 
     if convert_style:
@@ -295,9 +318,9 @@ def run_conversion(
             length_adjust=args.length_adjust,
             intelligebility_cfg_rate=args.intelligibility,
             similarity_cfg_rate=args.similarity,
-            top_p=0.9,
+            top_p=args.top_p,
             temperature=args.temperature,
-            repetition_penalty=1.5,
+            repetition_penalty=args.repetition_penalty,
             convert_style=True,
             anonymization_only=False,
             device=device,
