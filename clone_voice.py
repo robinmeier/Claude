@@ -38,6 +38,28 @@ def _in_managed_venv() -> bool:
     return str(VENV_DIR) in sys.executable
 
 
+def _patch_seed_vc() -> None:
+    """
+    Remove kwargs that convert_timbre() passes to CFM.inference() but that
+    CFM no longer accepts: sway_sampling and amo_sampling.
+    Idempotent — skips silently if already patched or not present.
+    """
+    import re
+    target = SEED_VC_DIR / "modules" / "v2" / "vc_wrapper.py"
+    if not target.exists():
+        return
+    text = target.read_text()
+    original = text
+    for kwarg in ("sway_sampling", "amo_sampling"):
+        # Remove ", kwarg=value" anywhere in a call
+        text = re.sub(rf',\s*{kwarg}\s*=\s*[^,)\n]+', '', text)
+        # Remove "kwarg=value," when it appears first / only
+        text = re.sub(rf'\b{kwarg}\s*=\s*[^,)\n]+,\s*', '', text)
+    if text != original:
+        target.write_text(text)
+        print("[patch] Removed unsupported sway_sampling/amo_sampling kwargs from vc_wrapper.py")
+
+
 def _bootstrap() -> None:
     # 1. Clone Seed-VC
     if not SEED_VC_DIR.exists():
@@ -51,7 +73,10 @@ def _bootstrap() -> None:
             check=True,
         )
 
-    # 2. Create virtual environment
+    # 2. Patch seed-vc source for API mismatches
+    _patch_seed_vc()
+
+    # 3. Create virtual environment
     if not VENV_DIR.exists():
         print("[setup] Creating virtual environment (Python 3.10)…")
         subprocess.run(
