@@ -40,24 +40,38 @@ def _in_managed_venv() -> bool:
 
 def _patch_seed_vc() -> None:
     """
-    Remove kwargs that convert_timbre() passes to CFM.inference() but that
-    CFM no longer accepts: sway_sampling and amo_sampling.
-    Idempotent — skips silently if already patched or not present.
+    Patch seed-vc source for two known API mismatches.
+    Idempotent — skips silently where already patched.
     """
     import re
-    target = SEED_VC_DIR / "modules" / "v2" / "vc_wrapper.py"
-    if not target.exists():
-        return
-    text = target.read_text()
-    original = text
-    for kwarg in ("sway_sampling", "amo_sampling"):
-        # Remove ", kwarg=value" anywhere in a call
-        text = re.sub(rf',\s*{kwarg}\s*=\s*[^,)\n]+', '', text)
-        # Remove "kwarg=value," when it appears first / only
-        text = re.sub(rf'\b{kwarg}\s*=\s*[^,)\n]+,\s*', '', text)
-    if text != original:
-        target.write_text(text)
-        print("[patch] Removed unsupported sway_sampling/amo_sampling kwargs from vc_wrapper.py")
+
+    # Patch 1 — vc_wrapper.py: remove kwargs CFM.inference() no longer accepts
+    vc_wrapper = SEED_VC_DIR / "modules" / "v2" / "vc_wrapper.py"
+    if vc_wrapper.exists():
+        text = vc_wrapper.read_text()
+        original = text
+        for kwarg in ("sway_sampling", "amo_sampling"):
+            text = re.sub(rf',\s*{kwarg}\s*=\s*[^,)\n]+', '', text)
+            text = re.sub(rf'\b{kwarg}\s*=\s*[^,)\n]+,\s*', '', text)
+        if text != original:
+            vc_wrapper.write_text(text)
+            print("[patch] Removed unsupported sway_sampling/amo_sampling kwargs from vc_wrapper.py")
+
+    # Patch 2 — cfm.py: inference_cfg_rate is sometimes a plain float but
+    # solve_euler iterates over it.  Normalise to a two-element list at every
+    # point where the code does "for i in inference_cfg_rate".
+    cfm_file = SEED_VC_DIR / "modules" / "v2" / "cfm.py"
+    if cfm_file.exists():
+        text = cfm_file.read_text()
+        original = text
+        text = text.replace(
+            "for i in inference_cfg_rate",
+            "for i in (inference_cfg_rate if not isinstance(inference_cfg_rate, (int, float))"
+            " else [inference_cfg_rate, inference_cfg_rate])",
+        )
+        if text != original:
+            cfm_file.write_text(text)
+            print("[patch] Fixed inference_cfg_rate float-vs-iterable bug in cfm.py")
 
 
 def _bootstrap() -> None:
@@ -284,7 +298,7 @@ def select_device() -> tuple[torch.device, torch.dtype]:
         dtype = torch.float16
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
-        dtype = torch.float32  # float16 is unreliable on MPS
+        dtype = torch.bfloat16  # MPS autocast requires bfloat16 or float16
     else:
         device = torch.device("cpu")
         dtype = torch.float32
