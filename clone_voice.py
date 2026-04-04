@@ -361,41 +361,40 @@ def run_conversion(
           f"  |  intel={args.intelligibility}  |  rep_pen={args.repetition_penalty}")
     print("[convert] Running… (may take a minute)")
 
-    if convert_style:
-        # Streaming mode — collects chunks and returns final assembled audio.
-        # Note: 'intelligebility' is the original (typo'd) parameter name in Seed-VC.
-        gen = wrapper.convert_voice_with_streaming(
-            source_audio_path=str(source),
-            target_audio_path=str(target),
-            diffusion_steps=args.diffusion_steps,
-            length_adjust=args.length_adjust,
-            intelligebility_cfg_rate=args.intelligibility,
-            similarity_cfg_rate=args.similarity,
-            top_p=args.top_p,
-            temperature=args.temperature,
-            repetition_penalty=args.repetition_penalty,
-            convert_style=True,
-            anonymization_only=False,
-            device=device,
-            dtype=dtype,
-            stream_output=True,
-        )
-        sr, audio = None, None
-        for _chunk_bytes, full_audio in gen:
-            if full_audio is not None:
-                sr, audio = full_audio
-    else:
-        # Timbre-only: faster, no AR pass, uses a single CFG rate
-        audio = wrapper.convert_timbre(
-            source_audio_path=str(source),
-            target_audio_path=str(target),
-            diffusion_steps=args.diffusion_steps,
-            length_adjust=args.length_adjust,
-            inference_cfg_rate=args.similarity,
-            device=device,
-            dtype=dtype,
-        )
-        sr = 22050  # Seed-VC v2 always outputs at 22050 Hz
+    # Always use convert_voice_with_streaming for both modes.
+    #
+    # convert_timbre is intentionally avoided: it processes the entire audio in
+    # one pass with no chunking, overflows the DiT's 8192-token context window
+    # on anything but very short clips, and passes inference_cfg_rate as a plain
+    # float while solve_euler requires a two-element list.
+    #
+    # convert_voice_with_streaming:
+    #   - chunks long audio automatically (max_context_window logic)
+    #   - passes inference_cfg_rate=[intelligebility, similarity] (correct type)
+    #   - convert_style=False → skips the AR pass (timbre-only, same as --no-style)
+    #   - convert_style=True  → runs the AR pass (full accent/emotion transfer)
+    #
+    # Note: 'intelligebility' is a typo in the original Seed-VC parameter name.
+    gen = wrapper.convert_voice_with_streaming(
+        source_audio_path=str(source),
+        target_audio_path=str(target),
+        diffusion_steps=args.diffusion_steps,
+        length_adjust=args.length_adjust,
+        intelligebility_cfg_rate=args.intelligibility,
+        similarity_cfg_rate=args.similarity,
+        top_p=args.top_p,
+        temperature=args.temperature,
+        repetition_penalty=args.repetition_penalty,
+        convert_style=convert_style,
+        anonymization_only=False,
+        device=device,
+        dtype=dtype,
+        stream_output=True,
+    )
+    sr, audio = None, None
+    for _chunk_bytes, full_audio in gen:
+        if full_audio is not None:
+            sr, audio = full_audio
 
     if audio is None:
         raise RuntimeError("Conversion produced no output — check your audio files.")
