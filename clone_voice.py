@@ -58,20 +58,32 @@ def _patch_seed_vc() -> None:
             print("[patch] Removed unsupported sway_sampling/amo_sampling kwargs from vc_wrapper.py")
 
     # Patch 2 — cfm.py: inference_cfg_rate is sometimes a plain float but
-    # solve_euler iterates over it.  Normalise to a two-element list at every
-    # point where the code does "for i in inference_cfg_rate".
+    # solve_euler uses it as a subscriptable sequence ([0], [1], iteration…).
+    # Instead of patching each usage, inject a one-line normalisation at the
+    # very top of solve_euler so all downstream code sees a list.
     cfm_file = SEED_VC_DIR / "modules" / "v2" / "cfm.py"
     if cfm_file.exists():
         text = cfm_file.read_text()
         original = text
-        text = text.replace(
-            "for i in inference_cfg_rate",
-            "for i in (inference_cfg_rate if not isinstance(inference_cfg_rate, (int, float))"
-            " else [inference_cfg_rate, inference_cfg_rate])",
-        )
+        # Guard: skip if already patched
+        if "isinstance(inference_cfg_rate" not in text:
+            # Match "def solve_euler(self...):⏎<indent>" and insert normalisation
+            text = re.sub(
+                r"(def solve_euler\(self[^\n]*\n)(\s+)",
+                lambda m: (
+                    m.group(1)
+                    + m.group(2)
+                    + "if isinstance(inference_cfg_rate, (int, float)):\n"
+                    + m.group(2) + "    "
+                    + "inference_cfg_rate = [inference_cfg_rate, inference_cfg_rate]\n"
+                    + m.group(2)
+                ),
+                text,
+                count=1,
+            )
         if text != original:
             cfm_file.write_text(text)
-            print("[patch] Fixed inference_cfg_rate float-vs-iterable bug in cfm.py")
+            print("[patch] Normalised inference_cfg_rate in cfm.py solve_euler")
 
 
 def _bootstrap() -> None:
@@ -172,6 +184,8 @@ if not _in_managed_venv():
     _bootstrap()
     sys.exit(0)  # unreachable after execv
 
+# Apply source patches on every run so an already-cloned repo is kept up to date.
+_patch_seed_vc()
 
 # ── Real imports (only reached inside managed venv) ──────────────────────────
 import argparse
