@@ -65,8 +65,8 @@ def _patch_seed_vc() -> None:
     if cfm_file.exists():
         text = cfm_file.read_text()
         original = text
-        # Guard: skip if already patched
-        if "isinstance(inference_cfg_rate" not in text:
+        # Guard: skip if the normalisation line is already present
+        if "inference_cfg_rate = [inference_cfg_rate, inference_cfg_rate]" not in text:
             # Match "def solve_euler(self...):⏎<indent>" and insert normalisation
             text = re.sub(
                 r"(def solve_euler\(self[^\n]*\n)(\s+)",
