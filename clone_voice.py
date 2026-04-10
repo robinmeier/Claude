@@ -240,7 +240,7 @@ Examples:
         """,
     )
     parser.add_argument("source", type=Path, help="Source audio (content to preserve)")
-    parser.add_argument("target", type=Path, help="Target voice sample (1–30 seconds)")
+    parser.add_argument("target", type=Path, help="Target voice sample — clean, single-speaker audio. Optimal 10–20 s; hard cap 25 s (longer is silently truncated)")
     parser.add_argument(
         "--output",
         type=Path,
