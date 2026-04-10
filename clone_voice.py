@@ -234,6 +234,8 @@ Tuning guide:
 
 Examples:
   uv run clone_voice.py speech.wav voice.wav
+  uv run clone_voice.py speech.wav voice.wav -o result.wav
+  uv run clone_voice.py speech.wav voice.wav -o ~/Desktop/
   uv run clone_voice.py speech.wav voice.wav --temperature 0.7 --intelligibility 0.9
   uv run clone_voice.py speech.wav voice.wav --no-style --similarity 0.85
   uv run clone_voice.py speech.wav voice.wav --diffusion-steps 50
@@ -242,11 +244,12 @@ Examples:
     parser.add_argument("source", type=Path, help="Source audio (content to preserve)")
     parser.add_argument("target", type=Path, help="Target voice sample — clean, single-speaker audio. Optimal 10–20 s; hard cap 25 s (longer is silently truncated)")
     parser.add_argument(
-        "--output",
+        "-o", "--output",
         type=Path,
-        default=Path("./output"),
-        metavar="DIR",
-        help="Output directory [default: ./output]",
+        default=None,
+        metavar="PATH",
+        help="Output file path or directory. If a directory (or omitted), the file is named "
+             "<source>-converted-<timestamp>.wav inside it [default dir: ./output]",
     )
     parser.add_argument(
         "--diffusion-steps",
@@ -414,8 +417,8 @@ def main() -> None:
     # Resolve all paths to absolute before any directory changes
     args.source = args.source.resolve()
     args.target = args.target.resolve()
-    args.output = args.output.resolve()
-    args.output.mkdir(parents=True, exist_ok=True)
+    if args.output is not None:
+        args.output = args.output.resolve()
 
     # Seed-VC resolves some paths relative to its own directory
     os.chdir(SEED_VC_DIR)
@@ -427,7 +430,17 @@ def main() -> None:
     sr, audio = run_conversion(wrapper, args.source, args.target, args, device, dtype)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = args.output / f"converted_{timestamp}.wav"
+    source_stem = args.source.stem
+    default_name = f"{source_stem}-converted-{timestamp}.wav"
+
+    if args.output is None:
+        out_path = Path("./output") / default_name
+    elif args.output.suffix.lower() == ".wav":
+        out_path = args.output          # explicit filename
+    else:
+        out_path = args.output / default_name   # treat as directory
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(out_path), audio, sr)
 
     print(f"\n[done] Saved → {out_path}")
